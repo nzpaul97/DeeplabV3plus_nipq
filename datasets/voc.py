@@ -102,6 +102,7 @@ class VOCSegmentation(data.Dataset):
         self.transform = transform
         
         self.image_set = image_set
+        print(image_set, is_aug)
         base_dir = DATASET_YEAR_DICT[year]['base_dir']
         voc_root = os.path.join(self.root, base_dir)
         image_dir = os.path.join(voc_root, 'JPEGImages')

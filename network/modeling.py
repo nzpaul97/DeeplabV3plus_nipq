@@ -1,10 +1,12 @@
 from .utils import IntermediateLayerGetter
 from ._deeplab import DeepLabHead, DeepLabHeadV3Plus, DeepLabV3
+from ._deeplab_nq import DeepLabHeadV3Plus_nq, DeepLabHead_nq
 from .backbone import (
     resnet,
     mobilenetv2,
     hrnetv2,
-    xception
+    xception,
+    MobileNetV2_nq
 )
 
 def _segm_hrnet(name, backbone_name, num_classes, pretrained_backbone):
@@ -87,8 +89,10 @@ def _segm_mobilenet(name, backbone_name, num_classes, output_stride, pretrained_
     else:
         aspp_dilate = [6, 12, 18]
 
-    backbone = mobilenetv2.mobilenet_v2(pretrained=pretrained_backbone, output_stride=output_stride)
-    
+    # backbone = mobilenetv2.mobilenet_v2(pretrained=pretrained_backbone, output_stride=output_stride)
+    # don't use pretrained mobilenet backcone
+    backbone = mobilenetv2.mobilenet_v2(pretrained=False, output_stride=output_stride)
+
     # rename layers
     backbone.low_level_features = backbone.features[0:4]
     backbone.high_level_features = backbone.features[4:-1]
@@ -109,10 +113,43 @@ def _segm_mobilenet(name, backbone_name, num_classes, output_stride, pretrained_
     model = DeepLabV3(backbone, classifier)
     return model
 
+
+def _segm_mobilenet_nq(name, backbone_name, num_classes, output_stride, pretrained_backbone):
+    if output_stride==8:
+        aspp_dilate = [12, 24, 36]
+    else:
+        aspp_dilate = [6, 12, 18]
+
+    backbone = MobileNetV2_nq.mobilenet_v2(pretrained=pretrained_backbone, output_stride=output_stride)
+    
+    # rename layers
+    backbone.low_level_features = backbone.features[0:4]
+    backbone.high_level_features = backbone.features[4:-1]
+    backbone.features = None
+    backbone.classifier = None
+
+    inplanes = 320
+    low_level_planes = 24
+    
+    if name=='deeplabv3plus':
+        return_layers = {'high_level_features': 'out', 'low_level_features': 'low_level'}
+        classifier = DeepLabHeadV3Plus_nq(inplanes, low_level_planes, num_classes, aspp_dilate)
+    elif name=='deeplabv3':
+        return_layers = {'high_level_features': 'out'}
+        classifier = DeepLabHead_nq(inplanes , num_classes, aspp_dilate)
+    backbone = IntermediateLayerGetter(backbone, return_layers=return_layers)
+
+    model = DeepLabV3(backbone, classifier)
+    return model
+
+
 def _load_model(arch_type, backbone, num_classes, output_stride, pretrained_backbone):
 
-    if backbone=='mobilenetv2':
-        model = _segm_mobilenet(arch_type, backbone, num_classes, output_stride=output_stride, pretrained_backbone=pretrained_backbone)
+    if backbone.startswith('mobilenetv2'):
+        if backbone.endswith('_nq'):
+            model = _segm_mobilenet_nq(arch_type, backbone, num_classes, output_stride=output_stride, pretrained_backbone=pretrained_backbone)
+        else:
+            model = _segm_mobilenet(arch_type, backbone, num_classes, output_stride=output_stride, pretrained_backbone=pretrained_backbone)
     elif backbone.startswith('resnet'):
         model = _segm_resnet(arch_type, backbone, num_classes, output_stride=output_stride, pretrained_backbone=pretrained_backbone)
     elif backbone.startswith('hrnetv2'):
@@ -160,6 +197,18 @@ def deeplabv3_mobilenet(num_classes=21, output_stride=8, pretrained_backbone=Tru
         pretrained_backbone (bool): If True, use the pretrained backbone.
     """
     return _load_model('deeplabv3', 'mobilenetv2', num_classes, output_stride=output_stride, pretrained_backbone=pretrained_backbone)
+
+
+def deeplabv3_mobilenet_nq(num_classes=21, output_stride=8, pretrained_backbone=True, **kwargs):
+    """Constructs a DeepLabV3 model with a MobileNetv2 backbone.
+
+    Args:
+        num_classes (int): number of classes.
+        output_stride (int): output stride for deeplab.
+        pretrained_backbone (bool): If True, use the pretrained backbone.
+    """
+    return _load_model('deeplabv3', 'mobilenetv2_nq', num_classes, output_stride=output_stride, pretrained_backbone=pretrained_backbone)
+
 
 def deeplabv3_xception(num_classes=21, output_stride=8, pretrained_backbone=True, **kwargs):
     """Constructs a DeepLabV3 model with a Xception backbone.
@@ -210,6 +259,18 @@ def deeplabv3plus_mobilenet(num_classes=21, output_stride=8, pretrained_backbone
         pretrained_backbone (bool): If True, use the pretrained backbone.
     """
     return _load_model('deeplabv3plus', 'mobilenetv2', num_classes, output_stride=output_stride, pretrained_backbone=pretrained_backbone)
+
+
+def deeplabv3plus_mobilenet_nq(num_classes=21, output_stride=8, pretrained_backbone=True):
+    """Constructs a DeepLabV3+ model with a MobileNetv2 backbone.
+
+    Args:
+        num_classes (int): number of classes.
+        output_stride (int): output stride for deeplab.
+        pretrained_backbone (bool): If True, use the pretrained backbone.
+    """
+    return _load_model('deeplabv3plus', 'mobilenetv2_nq', num_classes, output_stride=output_stride, pretrained_backbone=pretrained_backbone)
+
 
 def deeplabv3plus_xception(num_classes=21, output_stride=8, pretrained_backbone=True):
     """Constructs a DeepLabV3+ model with a Xception backbone.

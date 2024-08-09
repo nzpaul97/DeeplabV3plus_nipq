@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
+from my_lib.nipq import QuantOps as Q
 
 from .utils import _SimpleSegmentationModel
 
@@ -25,22 +26,22 @@ class DeepLabV3(_SimpleSegmentationModel):
     """
     pass
 
-class DeepLabHeadV3Plus(nn.Module):
+class DeepLabHeadV3Plus_nq(nn.Module):
     def __init__(self, in_channels, low_level_channels, num_classes, aspp_dilate=[12, 24, 36]):
-        super(DeepLabHeadV3Plus, self).__init__()
+        super(DeepLabHeadV3Plus_nq, self).__init__()
         self.project = nn.Sequential( 
-            nn.Conv2d(low_level_channels, 48, 1, bias=False),
+            Q.Conv2d(low_level_channels, 48, 1, bias=False),
             nn.BatchNorm2d(48),
-            nn.ReLU(inplace=True),
+            Q.ReLU(),
         )
 
-        self.aspp = ASPP(in_channels, aspp_dilate)
+        self.aspp = ASPP_nq(in_channels, aspp_dilate)
 
         self.classifier = nn.Sequential(
-            nn.Conv2d(304, 256, 3, padding=1, bias=False),
+            Q.Conv2d(304, 256, 3, padding=1, bias=False),
             nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(256, num_classes, 1)
+            Q.ReLU(),
+            Q.Conv2d(256, num_classes, 1)
         )
         self._init_weight()
 
@@ -58,16 +59,16 @@ class DeepLabHeadV3Plus(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
-class DeepLabHead(nn.Module):
+class DeepLabHead_nq(nn.Module):
     def __init__(self, in_channels, num_classes, aspp_dilate=[12, 24, 36]):
         super(DeepLabHead, self).__init__()
 
         self.classifier = nn.Sequential(
-            ASPP(in_channels, aspp_dilate),
-            nn.Conv2d(256, 256, 3, padding=1, bias=False),
+            ASPP_nq(in_channels, aspp_dilate),
+            Q.Conv2d(256, 256, 3, padding=1, bias=False),
             nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(256, num_classes, 1)
+            Q.ReLU(),
+            Q.Conv2d(256, num_classes, 1)
         )
         self._init_weight()
 
@@ -90,9 +91,9 @@ class AtrousSeparableConvolution(nn.Module):
         super(AtrousSeparableConvolution, self).__init__()
         self.body = nn.Sequential(
             # Separable Conv
-            nn.Conv2d( in_channels, in_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, bias=bias, groups=in_channels ),
+            Q.Conv2d( in_channels, in_channels, kernel_size=kernel_size, stride=stride, padding=padding, dilation=dilation, bias=bias, groups=in_channels ),
             # PointWise Conv
-            nn.Conv2d( in_channels, out_channels, kernel_size=1, stride=1, padding=0, bias=bias),
+            Q.Conv2d( in_channels, out_channels, kernel_size=1, stride=1, padding=0, bias=bias),
         )
         
         self._init_weight()
@@ -111,9 +112,9 @@ class AtrousSeparableConvolution(nn.Module):
 class ASPPConv(nn.Sequential):
     def __init__(self, in_channels, out_channels, dilation):
         modules = [
-            nn.Conv2d(in_channels, out_channels, 3, padding=dilation, dilation=dilation, bias=False),
+            Q.Conv2d(in_channels, out_channels, 3, padding=dilation, dilation=dilation, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True)
+            Q.ReLU()
         ]
         super(ASPPConv, self).__init__(*modules)
 
@@ -121,24 +122,24 @@ class ASPPPooling(nn.Sequential):
     def __init__(self, in_channels, out_channels):
         super(ASPPPooling, self).__init__(
             nn.AdaptiveAvgPool2d(1),
-            nn.Conv2d(in_channels, out_channels, 1, bias=False),
+            Q.Conv2d(in_channels, out_channels, 1, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True))
+            Q.ReLU())
 
     def forward(self, x):
         size = x.shape[-2:]
         x = super(ASPPPooling, self).forward(x)
         return F.interpolate(x, size=size, mode='bilinear', align_corners=False)
 
-class ASPP(nn.Module):
+class ASPP_nq(nn.Module):
     def __init__(self, in_channels, atrous_rates):
-        super(ASPP, self).__init__()
+        super(ASPP_nq, self).__init__()
         out_channels = 256
         modules = []
         modules.append(nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, 1, bias=False),
+            Q.Conv2d(in_channels, out_channels, 1, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True)))
+            Q.ReLU()))
 
         rate1, rate2, rate3 = tuple(atrous_rates)
         modules.append(ASPPConv(in_channels, out_channels, rate1))
@@ -149,9 +150,9 @@ class ASPP(nn.Module):
         self.convs = nn.ModuleList(modules)
 
         self.project = nn.Sequential(
-            nn.Conv2d(5 * out_channels, out_channels, 1, bias=False),
+            Q.Conv2d(5 * out_channels, out_channels, 1, bias=False),
             nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True),
+            Q.ReLU(),
             nn.Dropout(0.1),)
 
     def forward(self, x):
@@ -163,7 +164,7 @@ class ASPP(nn.Module):
 
 
 
-def convert_to_separable_conv(module):
+def convert_to_separable_conv_nq(module):
     new_module = module
     if isinstance(module, nn.Conv2d) and module.kernel_size[0]>1:
         new_module = AtrousSeparableConvolution(module.in_channels,
@@ -174,5 +175,5 @@ def convert_to_separable_conv(module):
                                       module.dilation,
                                       module.bias)
     for name, child in module.named_children():
-        new_module.add_module(name, convert_to_separable_conv(child))
+        new_module.add_module(name, convert_to_separable_conv_nq(child))
     return new_module
